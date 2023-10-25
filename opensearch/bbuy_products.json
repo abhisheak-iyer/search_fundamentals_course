@@ -188,7 +188,7 @@
         "type": "text",
         "analyzer": "english"
       },
-      "manufacturer": {
+    "manufacturer": {
         "type": "text",
         "fields": {
           "keyword": {
