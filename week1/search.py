@@ -94,10 +94,8 @@ def query():
     print("query obj: {}".format(query_obj))
 
     #### Step 4.b.ii
-    response = None   # TODO: Replace me with an appropriate call to OpenSearch
-    # Postprocess results here if you so desire
+    response = opensearch.search(body=query_obj, index="bbuy_products")   
 
-    #print(response)
     if error is None:
         return render_template("search_results.jinja2", query=user_query, search_response=response,
                                display_filters=display_filters, applied_filters=applied_filters,
@@ -105,17 +103,83 @@ def query():
     else:
         redirect(url_for("index"))
 
-
 def create_query(user_query, filters, sort="_score", sortDir="desc"):
     print("Query: {} Filters: {} Sort: {}".format(user_query, filters, sort))
     query_obj = {
         'size': 10,
+        "sort": [
+             { 
+                sort : {
+                    "order": sortDir
+                }
+             } 
+        ],
         "query": {
-            "match_all": {} # Replace me with a query that both searches and filters
+            "bool": {
+                "must": [
+                    {
+                        "query_string": {
+                            "query": user_query,
+                            "phrase_slop": 3,
+                            "fields": [
+                                "name^100",
+                                "shortDescription^50",
+                                "longDescription^10",
+                                "department"
+                            ]
+                        }
+                    }
+                ],
+                "filter": filters
+            }
         },
         "aggs": {
             #### Step 4.b.i: create the appropriate query and aggregations here
-
-        }
+            "regularPrice": {
+                "range": {
+                    "field": "regularPrice",
+                    "ranges": [
+                        {
+                            "key": "$", 
+                            "to": 50
+                        },
+                        {
+                            "key": "$$",
+                            "from": 50,
+                            "to": 100
+                        },
+                        {
+                            "key": "$$$",
+                            "from": 100,
+                            "to": 300
+                        },
+                        {
+                            "key": "$$$$",
+                            "from": 300
+                        }
+                    ]
+                }
+            },
+            "department": {
+                "terms": {
+                    "field": "department.keyword", 
+                    "size": 10
+                }
+            },
+            "missing_images": {
+                "missing": {
+                    "field": "image.keyword"
+                }
+            },
+        },
+        "highlight": {
+            "pre_tags" : ["<em><b>"],
+            "post_tags" : ["</b></em>"],
+            "fields": {
+                "name": {},
+                "shortDescription": {},
+                "longDescription": {}
+            }
+        },
     }
     return query_obj

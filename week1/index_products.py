@@ -12,8 +12,6 @@ import logging
 from time import perf_counter
 import concurrent.futures
 
-
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logging.basicConfig(format='%(levelname)s:%(message)s')
@@ -85,9 +83,22 @@ def get_opensearch():
     port = 9200
     auth = ('admin', 'admin')
     #### Step 2.a: Create a connection to OpenSearch
-    client = None
-    return client
+    client = OpenSearch(
+    hosts=[{'host': host, 'port': port}],
+    http_compress=True,  # enables gzip compression for request bodies
+    http_auth=auth,
+    # client_cert = client_cert_path,
+    # client_key = client_key_path,
+    use_ssl=True,
+    verify_certs=False,
+    ssl_assert_hostname=False,
+    ssl_show_warn=False,
+    )
 
+    # Do a few checks before we start indexing:
+    # print(client.cat.health())
+    # print(client.cat.indices())
+    return client
 
 def index_file(file, index_name):
     docs_indexed = 0
@@ -99,16 +110,30 @@ def index_file(file, index_name):
     docs = []
     for child in children:
         doc = {}
+        doc['_index'] = index_name
         for idx in range(0, len(mappings), 2):
             xpath_expr = mappings[idx]
             key = mappings[idx + 1]
             doc[key] = child.xpath(xpath_expr)
+        
         #print(doc)
         if 'productId' not in doc or len(doc['productId']) == 0:
             continue
         #### Step 2.b: Create a valid OpenSearch Doc and bulk index 2000 docs at a time
-        the_doc = None
-        docs.append(the_doc)
+        docs.append(doc)
+        if len(docs) >= 2000:
+            response = bulk(client, docs)
+            docs_indexed += response[0]
+            docs = []
+            logger.info(f'Indexing for file : {file} - docs indexed so far: {docs_indexed}')
+        
+    if len(docs) > 0:
+        response = bulk(client, docs)
+        docs_indexed += response[0]
+        logger.info(f'Indexing for file : {file} - docs indexed so far: {docs_indexed}')
+
+    #print(client.cat.count(index_name, params={"v": "true"}))
+    #print("docs indexed: ", docs_indexed)
 
     return docs_indexed
 
@@ -125,6 +150,7 @@ def main(source_dir: str, index_name: str, workers: int):
         futures = [executor.submit(index_file, file, index_name) for file in files]
         for future in concurrent.futures.as_completed(futures):
             docs_indexed += future.result()
+            logger.info(f'Docs indexed so far: {docs_indexed}')
 
     finish = perf_counter()
     logger.info(f'Done. Total docs: {docs_indexed} in {(finish - start)/60} minutes')
